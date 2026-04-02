@@ -1,4 +1,4 @@
-﻿# mie-bragg-onion
+﻿# mie_bragg_onion
 
 Scattnlay-based simulation tools for multilayer **Bragg onion spheres**:
 wavelength-dependent materials, multilayer geometry generation, scattering simulation,
