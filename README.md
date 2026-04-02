@@ -1,5 +1,8 @@
 ﻿# mie_bragg_onion
 
+**This project is currently under active research development.**
+APIs may change without notice.
+
 Scattnlay-based simulation tools for multilayer **Bragg onion spheres**:
 wavelength-dependent materials, multilayer geometry generation, scattering simulation,
 NA-based collection integration, colour analysis, parameter sweeps, and near-field / Poynting-flow visualization.
@@ -58,3 +61,12 @@ src/bragg_onion/
     colour_solid_plotting.py
     sweep.py
     fields.py
+
+## License
+
+This project is licensed under the terms of the GNU General Public License v3.0.
+See the `LICENSE` file for details.
+
+## Author
+
+Niklas Rocca Schwarz
