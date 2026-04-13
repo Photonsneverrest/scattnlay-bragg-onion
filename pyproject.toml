@@ -8,8 +8,7 @@ version = "0.1.0"
 description = "Scattnlay-based simulation tools for multilayer Bragg onion spheres"
 readme = "README.md"
 requires-python = ">=3.10"
-
-license = { file = "LICENSE" }
+license = "GPL-3.0-or-later"
 
 authors = [
   { name = "Niklas Schwarz", email = "niklas.r.schwarz@gmail.com" }
@@ -23,21 +22,23 @@ dependencies = [
   "colour-science>=0.4"
 ]
 
-[project.optional-dependencies]
-scattnlay = [
-  "python-scattnlay>=2.4"
-]
-full = [
-  "python-scattnlay>=2.4"
-]
-
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Topic :: Scientific/Engineering :: Physics",
+  "Topic :: Scientific/Engineering :: Visualization"
+]
+
+[project.optional-dependencies]
+scattnlay = [
+  "python-scattnlay>=2.4"
+]
+full = [
+  "python-scattnlay>=2.4"
 ]
 
 [project.urls]
@@ -54,5 +55,5 @@ where = ["src"]
 [tool.setuptools.package-data]
 bragg_onion = [
   "rosch_macadam_colour_solid_1nm.csv",
-  "rosch_macadam_max_chroma_per_hue_1deg.csv",
+  "rosch_macadam_max_chroma_per_hue_1deg.csv"
 ]
