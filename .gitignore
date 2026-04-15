@@ -35,5 +35,14 @@ frames/
 GIF/
 *.html
 
-# Optional: keep large local notebooks / exports out of git
-# notebooks/tmp/
+# ============================================================
+# Local research / working content (not public)
+# ============================================================
+notebooks/*
+scripts/*
+outputs/*
+
+# Keep empty folder structure in Git
+!notebooks/.gitkeep
+!scripts/.gitkeep
+!outputs/.gitkeep
