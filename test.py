@@ -2,7 +2,7 @@
 # Bragg Onion Scattnlay testing
 
 import sys
-sys.path.append('C:/Users/SchwarzN/OneDrive - Université de Fribourg/Institution/P1_BraggSpericalPigments/Simulation/MIE_Computation/Scattnlay_BraggOnion')
+sys.path.append('C:/Users/SchwarzN/OneDrive - Université de Fribourg/Institution/P1_BraggSpericalPigments/Simulation/MIE_Computation/Scattnlay_BraggOnion/src/bragg_onion')
 
 # %%
 # materials testing
