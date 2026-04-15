@@ -41,6 +41,7 @@ GIF/
 notebooks/*
 scripts/*
 outputs/*
+trash/*
 
 # Keep empty folder structure in Git
 !notebooks/.gitkeep
