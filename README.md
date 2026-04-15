@@ -96,15 +96,15 @@ python -m pip install scattnlay
 
 On Windows, installing scattnlay may require:
 
-- `Microsoft C++ Build Tools`
-- `a compatible MSVC / Python architecture`
-- `successful upstream build compatibility`
+- Microsoft C++ Build Tools
+- a compatible MSVC / Python architecture
+-`successful upstream build compatibility
 
 A working installation may depend on:
 
-- `Python version`
-- `64-bit vs 32-bit architecture`
-- `compiler / toolchain configuration`
+- Python version
+- 64-bit vs 32-bit architecture
+- compiler / toolchain configuration
 
 If the optional dependency cannot be built on your system, the core package
 can still be installed and used independently.
@@ -161,10 +161,10 @@ A package-based analysis script is provided in:
 examples/analyse_bragg_onions.py
 ```
 This script:
-- `loads dispersive materials`
-- `runs a Bragg onion parameter sweep`
-- `saves CSV results`
-- `generates screening figures`
+- loads dispersive materials
+- runs a Bragg onion parameter sweep
+- saves CSV results
+- generates screening figures
 
 Run it with:
 ```bash
@@ -221,8 +221,8 @@ A typical workflow is:
 
 This repository currently provides:
 
-- `a validated **core package**`
-- `an **optional simulation stack** that depends on scattnlay`
+- a validated **core package**
+- an **optional simulation stack** that depends on scattnlay
 
 The optional simulation stack is actively being stabilized across platforms.
 
