@@ -212,15 +212,37 @@ def make_plotting_aliases(df: pd.DataFrame) -> pd.DataFrame:
     }
     df_plot = df_plot.rename(columns=existing_rename_map)
 
-    # Optional convenience columns:
-    if "peak_wavelength_m" in df_plot.columns and "peak_wavelength_nm" not in df_plot.columns:
-        df_plot["peak_wavelength_nm"] = df_plot["peak_wavelength_m"] * 1e9
+    # Clean up wavelength columns
+    for col in ["peak_wavelength_m", "design_peak_wavelength_m"]:
+        if col in df_plot.columns:
+            nm_col = col.replace("_m", "_nm")
+            if nm_col not in df_plot.columns:
+                df_plot[nm_col] = df_plot[col] * 1e9
 
-    # Keep bool/string list columns more plot-friendly if desired
+    for nm_col in ["peak_wavelength_nm", "design_peak_wavelength_nm"]:
+        if nm_col in df_plot.columns:
+            vals = df_plot[nm_col].to_numpy(dtype=float)
+
+            # If values are effectively integers, snap to integer-valued float
+            if np.allclose(vals, np.round(vals), atol=1e-6):
+                df_plot[nm_col] = np.round(vals).astype(float)
+            else:
+                df_plot[nm_col] = np.round(vals, 6)
+
     if "Warnings_messages" in df_plot.columns:
         df_plot["has_warnings"] = df_plot["Warnings_messages"].apply(
             lambda x: len(x) > 0 if isinstance(x, list) else bool(x)
         )
+
+    # # Optional convenience columns:
+    # if "peak_wavelength_m" in df_plot.columns and "peak_wavelength_nm" not in df_plot.columns:
+    #     df_plot["peak_wavelength_nm"] = df_plot["peak_wavelength_m"] * 1e9
+
+    # # Keep bool/string list columns more plot-friendly if desired
+    # if "Warnings_messages" in df_plot.columns:
+    #     df_plot["has_warnings"] = df_plot["Warnings_messages"].apply(
+    #         lambda x: len(x) > 0 if isinstance(x, list) else bool(x)
+    #     )
 
     return df_plot
 
@@ -302,10 +324,14 @@ def run_bragg_onion_sweep(
     theta_rad: FloatArray,
     collection_na: float,
     collection_direction: Literal["forward", "backward"] = "backward",
-    integration_quantity_for_colour: Literal["c_collected_m2", "fraction_collected", "c_collected_geom_norm"] = "c_collected_m2",
-    colour_wavelength_min_nm: float = 400.0,
-    colour_wavelength_max_nm: float = 700.0,
-    colour_normalize_input: bool = True,
+    integration_quantity_for_colour: Literal[
+        "c_collected_m2",
+        "fraction_collected",
+        "q_collected_geom",
+    ] = "q_collected_geom",
+    colour_wavelength_min_nm: float = None,
+    colour_wavelength_max_nm: float = None,
+    colour_normalize_input: bool = False,
     colour_normalization: Literal["max", "sum"] = "max",
     fixed_geometry_kwargs: dict[str, Any] | None = None,
     extinction_modifiers: ExtinctionModifier | list[ExtinctionModifier] | None = None,
@@ -439,6 +465,11 @@ def run_bragg_onion_sweep(
         # --------------------------------------------------------
         # 6) Summarize into one DataFrame row
         # --------------------------------------------------------
+
+        
+        q_geom = integrated_result.q_collected_geom
+        wl_nm = integrated_result.wavelengths_m * 1e9
+
         row: dict[str, Any] = {
             "case_index": case_index,
             "geometry_mode": geometry_mode,
@@ -455,12 +486,18 @@ def run_bragg_onion_sweep(
             "t_a_nm": float(geometry.t_a_m * 1e9),
             "t_b_nm": float(geometry.t_b_m * 1e9),
             "core_thickness_factor": float(geometry.core_thickness_factor),
+            "q_collected_geom_max": float(np.max(q_geom)),
+            "q_collected_geom_peak_wavelength_nm": float(
+                wl_nm[np.argmax(q_geom)]
+            ),
+
         }
 
         if geometry.design_peak_wavelength_m is not None:
             row["design_peak_wavelength_nm"] = float(geometry.design_peak_wavelength_m * 1e9)
 
         # keep explicit sweep params in the row too
+        row.update(_flatten_nested_dict(colour_result.color_properties))
         row.update(params)
 
         # basic scattering summaries
@@ -606,17 +643,46 @@ def plot_sweep_heatmap(
         origin="lower",
         cmap=cmap,
     )
+    
+    x_labels = []
+    for v in pivot.columns:
+        if isinstance(v, (int, np.integer)):
+            x_labels.append(f"{v:d}")
+        elif isinstance(v, (float, np.floating)):
+            if np.isclose(v, round(v), atol=1e-6):
+                x_labels.append(f"{int(round(v))}")
+            else:
+                x_labels.append(f"{v:.1f}")
+        else:
+            x_labels.append(str(v))
+
+    y_labels = []
+    for v in pivot.index:
+        if isinstance(v, (int, np.integer)):
+            y_labels.append(f"{v:d}")
+        elif isinstance(v, (float, np.floating)):
+            if np.isclose(v, round(v), atol=1e-6):
+                y_labels.append(f"{int(round(v))}")
+            else:
+                y_labels.append(f"{v:.1f}")
+        else:
+            y_labels.append(str(v))
 
     ax.set_xticks(np.arange(pivot.shape[1]))
-    ax.set_xticklabels([str(v) for v in pivot.columns])
+    ax.set_xticklabels(x_labels, rotation=45, ha="right")
+
     ax.set_yticks(np.arange(pivot.shape[0]))
-    ax.set_yticklabels([str(v) for v in pivot.index])
+    ax.set_yticklabels(y_labels)
 
     ax.set_xlabel(x)
     ax.set_ylabel(y)
     ax.set_title(f"{value} heatmap")
-    plt.colorbar(im, ax=ax, label=f"{value} ({scale})" if scale == "db" else value)
+
+    cbar_label = f"{value} ({scale})" if scale == "db" else value
+    plt.colorbar(im, ax=ax, label=cbar_label)
+
     return ax
+
 
 
 def plot_sweep_colour_strip(
@@ -657,7 +723,8 @@ def plot_sweep_colour_strip(
     ax.set_xlim(0, len(x_vals))
     ax.set_ylim(0, 1)
 
-    for i, (x_val, hex_val) in enumerate(zip(x_vals, hex_vals)):
+    
+    for i, hex_val in enumerate(hex_vals):
         rect = Rectangle((i, 0), 1, 1, facecolor=hex_val, edgecolor="black", linewidth=0.5)
         ax.add_patch(rect)
 
@@ -667,9 +734,23 @@ def plot_sweep_colour_strip(
             label = str(df_plot.iloc[i][label_col])
             ax.text(i + 0.5, 0.5, label, ha="center", va="center", fontsize=8)
 
+    # Clean x tick labels
+    x_labels = []
+    for v in x_vals:
+        if isinstance(v, (int, np.integer)):
+            x_labels.append(f"{v:d}")
+        elif isinstance(v, (float, np.floating)):
+            if np.isclose(v, round(v), atol=1e-6):
+                x_labels.append(f"{int(round(v))}")
+            else:
+                x_labels.append(f"{v:.1f}")
+        else:
+            x_labels.append(str(v))
+
     ax.set_xticks(np.arange(len(x_vals)) + 0.5)
-    ax.set_xticklabels([str(v) for v in x_vals], rotation=90)
+    ax.set_xticklabels(x_labels, rotation=90)
     ax.set_yticks([])
     ax.set_xlabel(x)
     ax.set_title("Computed colour strip")
+
     return ax

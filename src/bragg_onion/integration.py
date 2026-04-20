@@ -30,63 +30,31 @@ if TYPE_CHECKING:
     from .solver import ScatteringResult
 
 
+# ============================================================
+# Type aliases
+# ============================================================
+
 FloatArray = NDArray[np.float64]
 CollectionDirection = Literal["forward", "backward"]
 
-
 __all__ = [
     "IntegratedScatteringResult",
-    "na_to_theta_max",
     "integrate_theta_range",
     "integrate_collection_na",
 ]
 
 
 # ============================================================
-# Dataclass
-# ============================================================
-
-@dataclass(frozen=True)
-class IntegratedScatteringResult:
-    """
-    Integrated scattering results over a selected solid-angle region.
-
-    Attributes
-    ----------
-    wavelengths_m :
-        Wavelength grid [m], shape (n_wavelengths,)
-    theta_min_rad, theta_max_rad :
-        Polar angular limits of the integration region [rad]
-    direction :
-        "forward", "backward", or "custom"
-    collection_na :
-        Numerical aperture used for defining the region, or None
-    c_collected_m2 :
-        Collected scattering cross-section [m^2], shape (n_wavelengths,)
-    fraction_collected :
-        Collected fraction relative to total scattering cross-section [-],
-        shape (n_wavelengths,)
-    c_collected_geom_norm :
-        Collected scattering normalized by geometric cross-sectional area [-],
-        shape (n_wavelengths,)
-    solid_angle_sr :
-        Solid angle of the integrated region [sr], shape (n_wavelengths,)
-    """
-    wavelengths_m: FloatArray
-    theta_min_rad: FloatArray
-    theta_max_rad: FloatArray
-    direction: str
-    collection_na: float | None
-
-    c_collected_m2: FloatArray
-    fraction_collected: FloatArray
-    c_collected_geom_norm: FloatArray
-    solid_angle_sr: FloatArray
-
-
-# ============================================================
 # Helpers
 # ============================================================
+
+def geometric_cross_section_from_radii_m(radii_m) -> float:
+    """
+    Geometric cross-section πR² from the outer radius of the sphere.
+    """
+    r = float(np.asarray(radii_m, dtype=float)[-1])
+    return float(np.pi * r**2)
+
 
 def _as_1d_float_array(values: float | Iterable[float] | np.ndarray, name: str) -> FloatArray:
     """Convert scalar or iterable to a 1D float64 NumPy array."""
@@ -94,35 +62,32 @@ def _as_1d_float_array(values: float | Iterable[float] | np.ndarray, name: str) 
     if arr.ndim == 0:
         arr = arr.reshape(1)
     elif arr.ndim != 1:
-        raise ValueError(f"{name} must be a scalar or a 1D array.")
+        raise ValueError(f"{name} must be scalar or 1D.")
     return arr.astype(np.float64, copy=False)
 
-
-def _solid_angle_of_cone(theta_max_rad: FloatArray) -> FloatArray:
+def _solid_angle_of_cone(theta_max: FloatArray) -> FloatArray:
     """
     Solid angle of a cone with half-angle theta_max.
 
     Ω = 2π (1 - cos(theta_max))
     """
-    return 2.0 * np.pi * (1.0 - np.cos(theta_max_rad))
+    return 2.0 * np.pi * (1.0 - np.cos(theta_max))
 
 
-def _solid_angle_of_theta_band(theta_min_rad: FloatArray, theta_max_rad: FloatArray) -> FloatArray:
+def _solid_angle_of_theta_band(theta_min: FloatArray, theta_max: FloatArray) -> FloatArray:
     """
     Solid angle of a polar band from theta_min to theta_max.
 
     Ω = 2π (cos(theta_min) - cos(theta_max))
     """
-    return 2.0 * np.pi * (np.cos(theta_min_rad) - np.cos(theta_max_rad))
+    return 2.0 * np.pi * (np.cos(theta_min) - np.cos(theta_max))
 
 
-def _validate_theta_range(theta_min_rad: FloatArray, theta_max_rad: FloatArray) -> None:
-    if theta_min_rad.shape != theta_max_rad.shape:
-        raise ValueError("theta_min_rad and theta_max_rad must have the same shape.")
-    if np.any(theta_min_rad < 0) or np.any(theta_max_rad > np.pi):
-        raise ValueError("theta limits must satisfy 0 <= theta <= π.")
-    if np.any(theta_max_rad < theta_min_rad):
-        raise ValueError("theta_max_rad must be >= theta_min_rad.")
+def _validate_theta_range(theta_min: FloatArray, theta_max: FloatArray) -> None:
+    if np.any(theta_min < 0) or np.any(theta_max > np.pi):
+        raise ValueError("Theta must satisfy 0 ≤ θ ≤ π.")
+    if np.any(theta_max < theta_min):
+        raise ValueError("theta_max must be ≥ theta_min.")
 
 
 def na_to_theta_max(
@@ -150,26 +115,20 @@ def na_to_theta_max(
     na = float(collection_na)
     if na < 0:
         raise ValueError("collection_na must be non-negative.")
-
-    n_med = np.asarray(n_medium)
-    n_med_real = np.real(n_med).astype(float)
-
-    if np.any(n_med_real <= 0):
-        raise ValueError("Real part of n_medium must be positive.")
-
-    ratio = na / n_med_real
+    
+    n_med = np.real(np.asarray(n_medium, dtype=float))
+    if np.any(n_med <= 0):
+        raise ValueError("Real(n_medium) must be positive.")
+    
+    ratio = na / n_med
     if np.any(ratio > 1.0):
-        raise ValueError(
-            "collection_na exceeds Re(n_medium) for at least one wavelength. "
-            "NA must satisfy NA <= Re(n_medium)."
-        )
-
+        raise ValueError("collection_na exceeds Re(n_medium).")
     return np.arcsin(ratio)
 
 
-def _integrate_dcs_over_theta_mask(
+def _integrate_dcs(
     theta_rad: FloatArray,
-    dcs_row_m2_sr: FloatArray,
+    dcs_row: FloatArray,
     mask: NDArray[np.bool_],
 ) -> float:
     """
@@ -180,17 +139,63 @@ def _integrate_dcs_over_theta_mask(
                     = ∫ (dσ/dΩ) 2π sin(theta) dtheta
     """
     theta_sel = theta_rad[mask]
-    dcs_sel = dcs_row_m2_sr[mask]
+    dcs_sel = dcs_row[mask]
 
     if theta_sel.size < 2:
         return 0.0
-
+    
     integrand = dcs_sel * 2.0 * np.pi * np.sin(theta_sel)
     return float(np.trapz(integrand, theta_sel))
 
 
 # ============================================================
-# Public integration functions
+# Dataclass
+# ============================================================
+
+@dataclass(frozen=True)
+class IntegratedScatteringResult:
+    """
+    Integrated scattering results over a selected solid-angle region.
+
+    Attributes
+    ----------
+    wavelengths_m :
+        Wavelength grid [m], shape (n_wavelengths,)
+    theta_min_rad, theta_max_rad :
+        Polar angular limits of the integration region [rad]
+    direction :
+        "forward", "backward", or "custom"
+    collection_na :
+        Numerical aperture used for defining the region, or None
+    c_collected_m2 :
+        Collected scattering cross-section [m^2], shape (n_wavelengths,)
+    fraction_collected :
+        Collected fraction relative to total scattering cross-section [-],
+        shape (n_wavelengths,)
+    q_collected_geom :
+        Collected scattering normalized by geometric cross-sectional area [-],
+        shape (n_wavelengths,)
+    solid_angle_sr :
+        Solid angle of the integrated region [sr], shape (n_wavelengths,)
+    geometric_cross_section_m2 :
+        Geometric cross-sectional area of the particle [m^2]
+    """
+    wavelengths_m: FloatArray
+    theta_min_rad: FloatArray
+    theta_max_rad: FloatArray
+    direction: str
+    collection_na: float | None
+
+    c_collected_m2: FloatArray
+    fraction_collected: FloatArray
+    q_collected_geom: FloatArray
+    solid_angle_sr: FloatArray
+
+    geometric_cross_section_m2: float
+
+
+# ============================================================
+# Public API
 # ============================================================
 
 def integrate_theta_range(
@@ -228,9 +233,9 @@ def integrate_theta_range(
     theta_max = _as_1d_float_array(theta_max_rad, "theta_max_rad")
 
     if theta_min.size == 1:
-        theta_min = np.full(wl.shape, float(theta_min[0]), dtype=float)
+        theta_min = np.full_like(wl, float(theta_min[0]), dtype=float)
     if theta_max.size == 1:
-        theta_max = np.full(wl.shape, float(theta_max[0]), dtype=float)
+        theta_max = np.full_like(wl, float(theta_max[0]), dtype=float)
 
     if theta_min.shape != wl.shape or theta_max.shape != wl.shape:
         raise ValueError(
@@ -243,11 +248,14 @@ def integrate_theta_range(
 
     for i in range(wl.size):
         mask = (theta >= theta_min[i]) & (theta <= theta_max[i])
-        c_collected[i] = _integrate_dcs_over_theta_mask(theta, dcs[i], mask)
+        c_collected[i] = _integrate_dcs(theta, dcs[i], mask)
+
+    csca = np.asarray(result.csca_m2, dtype=float)
+    G = geometric_cross_section_from_radii_m(result.radii_m)
 
     with np.errstate(divide="ignore", invalid="ignore"):
-        fraction = np.where(result.csca_m2 > 0, c_collected / result.csca_m2, np.nan)
-        geom_norm = np.where(result.c_geo_m2 > 0, c_collected / result.c_geo_m2, np.nan)
+        fraction = np.where(csca > 0, c_collected / csca, np.nan)
+        q_geom = c_collected / G
 
     solid_angle = _solid_angle_of_theta_band(theta_min, theta_max)
 
@@ -259,8 +267,9 @@ def integrate_theta_range(
         collection_na=collection_na,
         c_collected_m2=c_collected,
         fraction_collected=fraction,
-        c_collected_geom_norm=geom_norm,
+        q_collected_geom=q_geom,
         solid_angle_sr=solid_angle,
+        geometric_cross_section_m2=G,
     )
 
 
@@ -268,7 +277,7 @@ def integrate_collection_na(
     result: ScatteringResult,
     collection_na: float,
     *,
-    direction: CollectionDirection = "forward",
+    direction: CollectionDirection = "backward",
 ) -> IntegratedScatteringResult:
     """
     Integrate scattering collected by a numerical-aperture cone.
