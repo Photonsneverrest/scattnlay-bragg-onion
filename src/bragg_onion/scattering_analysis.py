@@ -432,6 +432,8 @@ def plot_partition_pie_at_wavelength(
         cext = csca + cabs
 
     If wavelength_nm is None and design_wavelength_nm is provided, the design wavelength is used.
+
+    Small negative numerical noise is clipped to zero.
     """
     if ax is None:
         fig, ax = plt.subplots(figsize=(5.5, 5.5))
@@ -445,17 +447,18 @@ def plot_partition_pie_at_wavelength(
             # fallback: wavelength of maximum total scattering
             c_sca = _cross_section_array(scattering_result, "sca")
             wavelength_nm = float(wl_nm_all[np.argmax(c_sca)])
+            # wavelength_nm = float(wl_nm_all[np.argmax(scattering_result.qsca)])
 
     idx = nearest_wavelength_index(scattering_result.wavelengths_m, wavelength_nm)
     wl_sel = float(wl_nm_all[idx])
 
     bands = split_forward_side_backward(scattering_result, alpha_deg=alpha_deg)
 
-    c_forward = bands["c_forward_m2"][idx]
-    c_backward = bands["c_backward_m2"][idx]
-    c_side = bands["c_side_m2"][idx]
-    c_abs = _cross_section_array(scattering_result, "abs")[idx]
-    c_ext = _cross_section_array(scattering_result, "ext")[idx]
+    c_forward = max(float(bands["c_forward_m2"][idx]), 0.0)
+    c_backward = max(float(bands["c_backward_m2"][idx]), 0.0)
+    c_side = max(float(bands["c_side_m2"][idx]), 0.0)
+    c_abs = max(float(_cross_section_array(scattering_result, "abs")[idx]), 0.0)
+    c_ext = max(float(_cross_section_array(scattering_result, "ext")[idx]), 0.0)
 
     values = [c_forward, c_side, c_backward]
     labels = ["Forward", "Side", "Backward"]
@@ -464,7 +467,10 @@ def plot_partition_pie_at_wavelength(
         values.append(c_abs)
         labels.append("Absorption")
 
-    total = np.maximum(np.sum(values), 1e-300)
+    total = sum(values)
+    if total <= 0:
+        raise ValueError("All components are zero after clipping.")
+
     fractions = np.asarray(values, dtype=float) / total
 
     ax.pie(
@@ -474,7 +480,7 @@ def plot_partition_pie_at_wavelength(
         startangle=90,
         counterclock=False,
     )
-    ax.set_title(f"Extinction partition at {wl_sel:.1f} nm (α = {alpha_deg:.1f}°)")
+    ax.set_title(f"Partition at {wl_sel:.1f} nm (α = {alpha_deg:.1f}°)")
 
     return ax
 

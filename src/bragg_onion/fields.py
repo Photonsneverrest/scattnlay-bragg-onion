@@ -67,6 +67,10 @@ FieldKind = Literal["total", "scattered"]
 FlowKind = Literal["total", "scattered", "delta"]
 ScaleMode = Literal["linear", "db"]
 
+# Vacuum impedance
+# from scipy import constants
+# Z0_OHM = constants.physical_constants["characteristic impedance of vacuum"]
+Z0_OHM = 376.730313668
 
 __all__ = [
     "FieldMapResult",
@@ -74,6 +78,7 @@ __all__ = [
     "compute_field_map",
     "plot_field_magnitude",
     "plot_poynting_streamlines",
+    "plot_poynting_vectors",
 ]
 
 
@@ -299,16 +304,21 @@ def _incident_plane_wave(
     propagation_axis: Literal["z"] = "z",
     polarization_axis: Literal["x"] = "x",
     e0: complex = 1.0 + 0.0j,
-    h0: complex = 1.0 + 0.0j,
+    h0: complex | None = None,
 ) -> tuple[ComplexArray, ComplexArray]:
     """
-    Construct a simple monochromatic incident plane wave in the surrounding medium.
+    Construct a monochromatic incident plane wave in the surrounding medium.
 
     Assumptions
     -----------
     - propagation: +z
     - electric polarization: x
     - magnetic field: +y (right-handed plane wave)
+    - nonmagnetic medium (μr ≈ 1)
+
+    For a plane wave in a nonmagnetic dielectric medium:
+        H0 = E0 / η = (n / Z0) E0
+    with η = Z0 / n.
 
     Returns
     -------
@@ -323,6 +333,9 @@ def _incident_plane_wave(
     k0 = 2.0 * np.pi / wavelength_m
     k_med = k0 * n_medium_real
     phase = np.exp(1j * k_med * z_m)
+
+    if h0 is None:
+        h0 = (n_medium_real / Z0_OHM) * e0
 
     E_inc = np.zeros((x_m.size, 3), dtype=np.complex128)
     H_inc = np.zeros((x_m.size, 3), dtype=np.complex128)
@@ -367,6 +380,23 @@ def _percentile_limits(
     vmax = float(np.percentile(arr[finite], upper)) if upper is not None else None
     return vmin, vmax
 
+def _reference_speed_for_masking(
+    speed: np.ndarray,
+    *,
+    base_mask: np.ndarray,
+    percentile: float = 99.0,
+) -> float:
+    """
+    Compute a robust reference speed from finite, unmasked points
+    using a percentile instead of the absolute maximum.
+    """
+    speed = np.asarray(speed, dtype=float)
+    valid = (~base_mask) & np.isfinite(speed)
+
+    if not np.any(valid):
+        return 0.0
+
+    return float(np.percentile(speed[valid], percentile))
 
 def make_line_seeds(
     start_nm: tuple[float, float],
@@ -446,7 +476,7 @@ def compute_field_map(
     extent_m: float | None = None,
     extent_outer_radius_factor: float = 2.2,
     incident_e0: complex = 1.0 + 0.0j,
-    incident_h0: complex = 1.0 + 0.0j,
+    incident_h0: complex | None = None,
 ) -> FieldMapResult:
     """
     Compute a 2D near-field map in a selected plane.
@@ -836,11 +866,15 @@ def plot_poynting_streamlines(
         mask |= field_result.radial_distance_m <= field_result.outer_radius_m
 
     speed = np.sqrt(U**2 + V**2)
-    finite = np.isfinite(speed)
-    max_speed = float(np.nanmax(speed[finite])) if np.any(finite) else 0.0
+    # Robust reference speed based on percentile, not absolute maximum
+    ref_speed = _reference_speed_for_masking(
+        speed,
+        base_mask=mask,
+        percentile=99.0,
+    )
 
-    if max_speed > 0 and min_speed_fraction > 0:
-        threshold = min_speed_fraction * max_speed
+    if ref_speed > 0 and min_speed_fraction > 0:
+        threshold = min_speed_fraction * ref_speed
         mask |= speed < threshold
 
     # Normalize if desired
@@ -895,6 +929,208 @@ def plot_poynting_streamlines(
     ax.set_ylabel(plane_labels[field_result.plane][1])
     ax.set_title(
         f"Poynting streamlines ({flow_kind}) at {field_result.wavelength_m * 1e9:.1f} nm "
+        f"({field_result.plane} plane)"
+    )
+
+    return ax
+
+def plot_poynting_vectors(
+    field_result: FieldMapResult,
+    *,
+    flow_kind: FlowKind = "delta",
+    background_quantity: FieldQuantity | Literal["none"] = "S",
+    background_kind: Literal["total", "scattered", "delta"] = "total",
+    background_scale: ScaleMode = "db",
+    background_floor: float = 1e-30,
+    background_cmap: str = "magma",
+    background_clip_percentile_low: float | None = None,
+    background_clip_percentile_high: float | None = 99.5,
+    step: int = 12,
+    normalize_vectors: bool = True,
+    min_speed_fraction: float = 0.01,
+    mask_inside_sphere: bool = False,
+    vector_color: str = "white",
+    vector_scale: float | None = None,
+    vector_width: float = 0.003,
+    pivot: str = "mid",
+    show_boundaries: bool = True,
+    ax: plt.Axes | None = None,
+):
+    """
+    Plot in-plane Poynting vectors as a quiver plot.
+
+    This is often easier to interpret and debug than streamlines.
+
+    Parameters
+    ----------
+    flow_kind :
+        "total", "scattered", or "delta"
+    background_quantity :
+        "none", "E", "H", or "S"
+    background_kind :
+        - for E/H: "total" or "scattered"
+        - for S  : "total", "scattered", or "delta"
+    background_scale :
+        "linear" or "db"
+    step :
+        Plot every `step`-th grid point in each direction
+    normalize_vectors :
+        If True, plot only vector directions (unit vectors for nonzero vectors)
+    min_speed_fraction :
+        Mask vectors whose speed is below this fraction of the max in-plane speed
+    mask_inside_sphere :
+        If True, suppress vectors inside the outer sphere radius
+    vector_scale :
+        Passed to matplotlib.quiver(scale=...). If None, matplotlib chooses automatically.
+    pivot :
+        Quiver pivot mode, e.g. "mid", "tail", or "tip"
+    """
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    # --------------------------------------------------------
+    # Optional background map
+    # --------------------------------------------------------
+    if background_quantity != "none":
+        background_data = _choose_magnitude_array(
+            field_result,
+            quantity=background_quantity,
+            kind=background_kind,
+        )
+
+        background_plot = _apply_scale(
+            background_data,
+            scale=background_scale,
+            floor=background_floor,
+        )
+
+        if background_clip_percentile_low is not None or background_clip_percentile_high is not None:
+            vmin, vmax = _percentile_limits(
+                background_plot,
+                lower=background_clip_percentile_low,
+                upper=background_clip_percentile_high,
+            )
+        else:
+            vmin = vmax = None
+
+        extent_nm = [
+            float(field_result.coord1_m[0] * 1e9),
+            float(field_result.coord1_m[-1] * 1e9),
+            float(field_result.coord2_m[0] * 1e9),
+            float(field_result.coord2_m[-1] * 1e9),
+        ]
+
+        im = ax.imshow(
+            background_plot,
+            origin="lower",
+            extent=extent_nm,
+            cmap=background_cmap,
+            vmin=vmin,
+            vmax=vmax,
+            aspect="equal",
+        )
+
+        bg_label_map = {
+            ("E", "total"): r"|E| total",
+            ("H", "total"): r"|H| total",
+            ("S", "total"): r"|S| total",
+            ("E", "scattered"): r"|E| scattered-like",
+            ("H", "scattered"): r"|H| scattered-like",
+            ("S", "scattered"): r"|S| scattered-like",
+            ("S", "delta"): r"|S| delta",
+        }
+        bg_label = bg_label_map[(background_quantity, background_kind)]
+
+        cbar = plt.colorbar(im, ax=ax)
+        cbar.set_label(f"{bg_label} [dB]" if background_scale == "db" else bg_label)
+
+    # --------------------------------------------------------
+    # Choose flow field
+    # --------------------------------------------------------
+    if flow_kind == "total":
+        U = np.asarray(field_result.plane_u_total, dtype=float)
+        V = np.asarray(field_result.plane_v_total, dtype=float)
+    elif flow_kind == "scattered":
+        U = np.asarray(field_result.plane_u_sca_like, dtype=float)
+        V = np.asarray(field_result.plane_v_sca_like, dtype=float)
+    elif flow_kind == "delta":
+        U = np.asarray(field_result.plane_u_delta, dtype=float)
+        V = np.asarray(field_result.plane_v_delta, dtype=float)
+    else:
+        raise ValueError("flow_kind must be 'total', 'scattered', or 'delta'.")
+
+    speed = np.sqrt(U**2 + V**2)
+
+    # --------------------------------------------------------
+    # Masking
+    # --------------------------------------------------------
+    mask = np.zeros_like(U, dtype=bool)
+
+    if mask_inside_sphere:
+        mask |= field_result.radial_distance_m <= field_result.outer_radius_m
+
+    # Robust reference speed based on percentile, not absolute maximum
+    ref_speed = _reference_speed_for_masking(
+        speed,
+        base_mask=mask,
+        percentile=99.0,
+    )
+
+    if ref_speed > 0 and min_speed_fraction > 0:
+        mask |= speed < (min_speed_fraction * ref_speed)
+
+    # --------------------------------------------------------
+    # Normalize vectors if desired
+    # --------------------------------------------------------
+    if normalize_vectors:
+        nonzero = (~mask) & np.isfinite(speed) & (speed > 0)
+        U_plot = np.zeros_like(U)
+        V_plot = np.zeros_like(V)
+        U_plot[nonzero] = U[nonzero] / speed[nonzero]
+        V_plot[nonzero] = V[nonzero] / speed[nonzero]
+    else:
+        U_plot = U.copy()
+        V_plot = V.copy()
+
+    # --------------------------------------------------------
+    # Subsample grid
+    # --------------------------------------------------------
+    X_nm = field_result.grid1_m * 1e9
+    Y_nm = field_result.grid2_m * 1e9
+
+    Xq = X_nm[::step, ::step]
+    Yq = Y_nm[::step, ::step]
+    Uq = U_plot[::step, ::step]
+    Vq = V_plot[::step, ::step]
+    Mq = mask[::step, ::step]
+
+    Uq = np.ma.array(Uq, mask=Mq)
+    Vq = np.ma.array(Vq, mask=Mq)
+
+    ax.quiver(
+        Xq,
+        Yq,
+        Uq,
+        Vq,
+        color=vector_color,
+        scale=vector_scale,
+        width=vector_width,
+        pivot=pivot,
+    )
+
+    if show_boundaries:
+        _add_layer_boundaries(ax, field_result.radii_m)
+
+    plane_labels = {
+        "xy": ("x [nm]", "y [nm]"),
+        "xz": ("x [nm]", "z [nm]"),
+        "yz": ("y [nm]", "z [nm]"),
+    }
+
+    ax.set_xlabel(plane_labels[field_result.plane][0])
+    ax.set_ylabel(plane_labels[field_result.plane][1])
+    ax.set_title(
+        f"Poynting vectors ({flow_kind}) at {field_result.wavelength_m * 1e9:.1f} nm "
         f"({field_result.plane} plane)"
     )
 
