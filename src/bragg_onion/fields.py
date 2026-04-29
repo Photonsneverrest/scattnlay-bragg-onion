@@ -75,6 +75,8 @@ Z0_OHM = 376.730313668
 __all__ = [
     "FieldMapResult",
     "make_line_seeds",
+    "make_circle_seeds",
+    "make_edge_seeds",
     "compute_field_map",
     "plot_field_magnitude",
     "plot_poynting_streamlines",
@@ -427,6 +429,142 @@ def make_line_seeds(
     ys = np.linspace(y0, y1, n_seeds, dtype=float)
     return np.column_stack([xs, ys]).astype(np.float64)
 
+def make_circle_seeds(
+    radius_nm: float,
+    n_seeds: int,
+    *,
+    center_nm: tuple[float, float] = (0.0, 0.0),
+    start_angle_deg: float = 0.0,
+    end_angle_deg: float = 360.0,
+    radial_offset_nm: float = 0.0,
+    include_endpoint: bool = False,
+) -> FloatArray:
+    """
+    Create evenly spaced streamline seed points on a circle or circular arc.
+
+    Parameters
+    ----------
+    radius_nm :
+        Circle radius in nm (typically the outer sphere radius in the plotting plane)
+    n_seeds :
+        Number of seeds
+    center_nm :
+        Circle center in plotting-plane coordinates [nm]
+    start_angle_deg, end_angle_deg :
+        Angular range in degrees.
+        0°   = +coord1 axis
+        90°  = +coord2 axis
+        180° = -coord1 axis
+        270° = -coord2 axis
+    radial_offset_nm :
+        Additional radial offset in nm.
+        Use a small positive value (e.g. +2 nm) when mask_inside_sphere=True
+        so seeds lie just outside the sphere boundary.
+    include_endpoint :
+        Whether the final angle is included in the linspace.
+        Usually False is better for full 0–360° circles to avoid duplicate points.
+
+    Returns
+    -------
+    np.ndarray
+        Seed points of shape (n_seeds, 2), in plotting coordinates [nm]
+    """
+    if n_seeds < 1:
+        raise ValueError("n_seeds must be at least 1.")
+    if radius_nm < 0:
+        raise ValueError("radius_nm must be non-negative.")
+
+    cx, cy = center_nm
+    r = float(radius_nm + radial_offset_nm)
+
+    angles_deg = np.linspace(
+        start_angle_deg,
+        end_angle_deg,
+        n_seeds,
+        endpoint=include_endpoint,
+        dtype=float,
+    )
+    angles_rad = np.deg2rad(angles_deg)
+
+    x = cx + r * np.cos(angles_rad)
+    y = cy + r * np.sin(angles_rad)
+
+    return np.column_stack([x, y]).astype(np.float64)
+
+def make_edge_seeds(
+    field_result: FieldMapResult,
+    *,
+    edge: Literal["min_coord1", "max_coord1", "min_coord2", "max_coord2"],
+    n_seeds: int,
+    margin_nm: float = 0.0,
+    start_fraction: float = 0.05,
+    end_fraction: float = 0.95,
+) -> FloatArray:
+    """
+    Create evenly spaced streamline seed points along one edge of the plot box.
+
+    Parameters
+    ----------
+    field_result :
+        Field map containing coord1_m / coord2_m
+    edge :
+        Which plot-box edge to seed:
+        - "min_coord1" : left edge
+        - "max_coord1" : right edge
+        - "min_coord2" : bottom edge
+        - "max_coord2" : top edge
+    n_seeds :
+        Number of seeds
+    margin_nm :
+        Offset from the edge inward, in nm
+    start_fraction, end_fraction :
+        Fractional range along the opposite axis that will be filled with seeds.
+        Useful to avoid putting seeds exactly at the corners.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (n_seeds, 2), in plotting coordinates [nm]
+    """
+    if n_seeds < 1:
+        raise ValueError("n_seeds must be at least 1.")
+    if not (0.0 <= start_fraction <= 1.0 and 0.0 <= end_fraction <= 1.0):
+        raise ValueError("start_fraction and end_fraction must lie in [0, 1].")
+    if end_fraction <= start_fraction:
+        raise ValueError("end_fraction must be > start_fraction.")
+
+    c1_min = float(field_result.coord1_m[0] * 1e9)
+    c1_max = float(field_result.coord1_m[-1] * 1e9)
+    c2_min = float(field_result.coord2_m[0] * 1e9)
+    c2_max = float(field_result.coord2_m[-1] * 1e9)
+
+    if edge in ("min_coord1", "max_coord1"):
+        coord2_vals = np.linspace(
+            c2_min + start_fraction * (c2_max - c2_min),
+            c2_min + end_fraction * (c2_max - c2_min),
+            n_seeds,
+            dtype=float,
+        )
+        if edge == "min_coord1":
+            coord1_vals = np.full_like(coord2_vals, c1_min + margin_nm)
+        else:
+            coord1_vals = np.full_like(coord2_vals, c1_max - margin_nm)
+
+    elif edge in ("min_coord2", "max_coord2"):
+        coord1_vals = np.linspace(
+            c1_min + start_fraction * (c1_max - c1_min),
+            c1_min + end_fraction * (c1_max - c1_min),
+            n_seeds,
+            dtype=float,
+        )
+        if edge == "min_coord2":
+            coord2_vals = np.full_like(coord1_vals, c2_min + margin_nm)
+        else:
+            coord2_vals = np.full_like(coord1_vals, c2_max - margin_nm)
+    else:
+        raise ValueError("Unsupported edge.")
+
+    return np.column_stack([coord1_vals, coord2_vals]).astype(np.float64)
 
 def _choose_magnitude_array(
     field_result: FieldMapResult,
@@ -749,6 +887,12 @@ def plot_poynting_streamlines(
     streamline_density: float = 1.2,
     streamline_color: str = "white",
     streamline_linewidth: float = 0.8,
+    arrowstyle: str = "simple,head_length=1.0,head_width=0.35,tail_width=0.15",
+    arrowsize: float = 1.2,
+    integration_direction: Literal["forward", "backward", "both"] = "both",
+    minlength: float = 0.05,
+    maxlength: float = 10.0,
+    broken_streamlines: bool = False,
     normalize_vectors: bool = False,
     min_speed_fraction: float = 0.01,
     mask_inside_sphere: bool = False,
@@ -905,7 +1049,12 @@ def plot_poynting_streamlines(
         color=streamline_color,
         density=streamline_density,
         linewidth=streamline_linewidth,
-        arrowsize=1.0,
+        arrowsize=arrowsize,
+        arrowstyle=arrowstyle,
+        integration_direction=integration_direction,
+        minlength=minlength,
+        maxlength=maxlength,
+        broken_streamlines=broken_streamlines,
     )
 
     if start_points_nm is not None:
@@ -952,6 +1101,9 @@ def plot_poynting_vectors(
     vector_color: str = "white",
     vector_scale: float | None = None,
     vector_width: float = 0.003,
+    quiver_headwidth: float = 2.6,
+    quiver_headlength: float = 4.8,
+    quiver_headaxislength: float = 4.8,
     pivot: str = "mid",
     show_boundaries: bool = True,
     ax: plt.Axes | None = None,
@@ -1116,6 +1268,11 @@ def plot_poynting_vectors(
         scale=vector_scale,
         width=vector_width,
         pivot=pivot,
+        angles="xy",
+        scale_units="xy",
+        headwidth=quiver_headwidth,
+        headlength=quiver_headlength,
+        headaxislength=quiver_headaxislength,
     )
 
     if show_boundaries:
