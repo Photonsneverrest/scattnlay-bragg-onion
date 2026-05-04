@@ -287,7 +287,10 @@ def integrate_angle_band(
         raise ValueError("Angle band contains fewer than 2 theta points. Increase angular resolution.")
 
     integrand = dcs_sel * (2.0 * np.pi * np.sin(theta_sel))[None, :]
-    c_band_m2 = np.trapz(integrand, theta_sel, axis=1)
+    if hasattr(np, "trapezoid"):
+        c_band_m2 = np.trapezoid(integrand, theta_sel, axis=1)
+    else:
+        c_band_m2 = np.trapz(integrand, theta_sel, axis=1)
 
     return np.asarray(c_band_m2, dtype=float)
 

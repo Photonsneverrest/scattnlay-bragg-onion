@@ -255,7 +255,10 @@ def _safe_trapz(y: np.ndarray, x: np.ndarray) -> float:
     x = np.asarray(x, dtype=float)
     if y.size < 2 or x.size < 2:
         return 0.0
+    if hasattr(np, "trapezoid"):
+        return float(np.trapezoid(y, x))
     return float(np.trapz(y, x))
+
 
 
 def _spectral_summary(
