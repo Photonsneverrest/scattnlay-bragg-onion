@@ -125,6 +125,16 @@ def na_to_theta_max(
         raise ValueError("collection_na exceeds Re(n_medium).")
     return np.arcsin(ratio)
 
+def _np_trapezoid_compat(y, x):
+    """
+    Compatibility wrapper for NumPy trapezoidal integration.
+
+    Uses np.trapezoid if available (newer NumPy),
+    otherwise falls back to np.trapz (older NumPy).
+    """
+    if hasattr(np, "trapezoid"):
+        return np.trapezoid(y, x)
+    return np.trapz(y, x)
 
 def _integrate_dcs(
     theta_rad: FloatArray,
@@ -145,7 +155,7 @@ def _integrate_dcs(
         return 0.0
     
     integrand = dcs_sel * 2.0 * np.pi * np.sin(theta_sel)
-    return float(np.trapz(integrand, theta_sel))
+    return float(_np_trapezoid_compat(integrand, theta_sel))
 
 
 # ============================================================
