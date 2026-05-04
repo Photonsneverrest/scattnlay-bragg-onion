@@ -116,7 +116,7 @@ def na_to_theta_max(
     if na < 0:
         raise ValueError("collection_na must be non-negative.")
     
-    n_med = np.real(np.asarray(n_medium, dtype=float))
+    n_med = np.real(np.asarray(n_medium, dtype=complex))
     if np.any(n_med <= 0):
         raise ValueError("Real(n_medium) must be positive.")
     
