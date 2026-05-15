@@ -286,39 +286,42 @@ def colour_performance(
         else 0.0
     )
 
-    # eta lightness as deviation score from maximum chroma lightness at this hue in Rosch-MacAdam solid.
-    # Sign is positive if lightness is above the maximum chroma lightness, negative if below.
-    target_L = float(hue_maxchroma_props["L"])
-    delta = lightness - target_L
+    # # eta lightness as deviation score from maximum chroma lightness at this hue in Rosch-MacAdam solid.
+    # # Sign is positive if lightness is above the maximum chroma lightness, negative if below.
+    # target_L = float(hue_maxchroma_props["L"])
+    # delta = lightness - target_L
 
-    delta_max = max(target_L, (100 - target_L))
+    # delta_max = max(target_L, (100 - target_L))
     
-    eta_L = (1.0 -abs(delta) / delta_max if delta_max > 0 else 0.0)
-    eta_L_signed = eta_L if delta >= 0 else -eta_L
+    # eta_L = (1.0 -abs(delta) / delta_max if delta_max > 0 else 0.0)
+    # eta_L_signed = eta_L if delta >= 0 else -eta_L
 
-    # eta_L = (
-    #     lightness / float(hue_maxchroma_props["L"])
-    #     if float(hue_maxchroma_props["L"]) > 0
-    #     else 0.0
-    # )
+    
+    # eta lightness as simple fraction of maximum chroma lightness at this hue in Rosch-MacAdam solid.
+    eta_L = (
+        lightness / float(hue_maxchroma_props["L"])
+        if float(hue_maxchroma_props["L"]) > 0
+        else 0.0
+    )
 
-    # eta Y as deviation score from maximum chroma Y_rel at this hue in Rosch-MacAdam solid
-    # Sign is positive if Y_rel is above the maximum chroma Y_rel, negative if below.
-    target_Y_rel = float(hue_maxchroma_props["Y_rel"])
-    delta_Y = Y_rel - target_Y_rel
+    # # eta Y as deviation score from maximum chroma Y_rel at this hue in Rosch-MacAdam solid
+    # # Sign is positive if Y_rel is above the maximum chroma Y_rel, negative if below.
+    # target_Y_rel = float(hue_maxchroma_props["Y_rel"])
+    # delta_Y = Y_rel - target_Y_rel
 
-    delta_Y_max = max(target_Y_rel, (100 - target_Y_rel))
+    # delta_Y_max = max(target_Y_rel, (100 - target_Y_rel))
 
-    eta_Y = (1.0 - abs(delta_Y) / delta_Y_max if delta_Y_max > 0 else 0.0)
-    eta_Y_signed = eta_Y if delta_Y >= 0 else -eta_Y
+    # eta_Y = (1.0 - abs(delta_Y) / delta_Y_max if delta_Y_max > 0 else 0.0)
+    # eta_Y_signed = eta_Y if delta_Y >= 0 else -eta_Y
 
-    # eta_Y = (
-    #     Y_rel / float(hue_maxchroma_props["Y_rel"])
-    #     if float(hue_maxchroma_props["Y_rel"]) > 0
-    #     else 0.0
-    # )
+    # eta Y as simple fraction of maximum chroma Y_rel at this hue in Rosch-MacAdam solid.
+    eta_Y = (
+        Y_rel / float(hue_maxchroma_props["Y_rel"])
+        if float(hue_maxchroma_props["Y_rel"]) > 0
+        else 0.0
+    )
 
-    return float(eta_C), float(eta_L_signed), float(eta_Y_signed)
+    return float(eta_C), float(eta_L), float(eta_Y)
 
 
 def srgb_to_hex(r: float, g: float, b: float) -> str:
