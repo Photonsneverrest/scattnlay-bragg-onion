@@ -211,8 +211,7 @@ def _build_rosch_macadam_figure(
     # optimal-colour filled markers
     hover_opt = [
         f"hue={row['hue_deg']:.1f}°<br>"
-        f"L={row:.2f}, a={row:.2f}, b={row:.2f}"
-        # f"L={row[L_opt_col]:.2f}, a={row[a_opt_col]:.2f}, b={row[b_opt_col]:.2f}"
+        f"L={row[L_opt_col]:.2f}, a={row[a_opt_col]:.2f}, b={row[b_opt_col]:.2f}"
         for _, row in opt_df.iterrows()
     ]
 
