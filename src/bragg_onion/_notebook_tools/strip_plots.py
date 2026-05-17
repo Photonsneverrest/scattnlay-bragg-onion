@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.colors import to_rgb
+from collections.abc import Callable
 
 
 def _apply_fixed_filters(df: pd.DataFrame, fixed_filters: dict | None) -> pd.DataFrame:
@@ -90,6 +91,186 @@ def _format_annotation(row, annotate_cols, annotation_fmt=".2f"):
 
     return "\n".join(lines)
 
+# ------------------------------------------------------------
+# Public formatting / preparation helpers
+# ------------------------------------------------------------
+def pretty_param_name(name: str) -> str:
+    """
+    Pretty display label for common sweep parameters and metrics.
+    """
+    mapping = {
+        "n_layers": "n_layers",
+        "n_A": "n_A",
+        "k": "k",
+        "collection_angle_deg": "collection angle",
+        "design_peak_wavelength_nm": "design wavelength",
+        "outer_layer": "outer layer",
+        "case_index": "case",
+        "eta_C": "η_C",
+        "eta_L": "η_L",
+        "eta_Y": "η_Y",
+    }
+    return mapping.get(name, name)
+
+
+def format_param_value(name: str, value) -> str:
+    """
+    Pretty formatting for parameter values.
+    """
+    if isinstance(value, (float, np.floating)):
+        if name == "collection_angle_deg":
+            return f"{value:.1f}°"
+        if name in {"k", "n_A"}:
+            return f"{value:.3f}"
+        if float(value).is_integer():
+            return f"{int(value)}"
+        return f"{value:.3f}"
+    return str(value)
+
+
+def make_row_label_fmt(row_variable: str) -> Callable:
+    """
+    Return a formatter function suitable for plot_colour_strip_grid(..., row_label_fmt=...)
+    """
+    def _fmt(v):
+        return f"{row_variable}={format_param_value(row_variable, v)}"
+    return _fmt
+
+
+def make_strip_grid_title(row_variable: str, fixed_filters: dict) -> str:
+    """
+    Build a compact automatic title for the strip grid.
+    """
+    fixed_desc = ", ".join(
+        f"{pretty_param_name(k)} = {format_param_value(k, v)}"
+        for k, v in fixed_filters.items()
+    )
+    return (
+        f"Colour-strip grid: rows = {row_variable}, columns = design wavelength\n"
+        f"({fixed_desc})"
+    )
+
+
+def choose_colour_source_dataframe(
+    df_all: pd.DataFrame,
+    df_plot: pd.DataFrame,
+    colour_hex_col: str,
+) -> pd.DataFrame:
+    """
+    Automatically choose the correct dataframe based on the requested colour column.
+    """
+    return df_plot if colour_hex_col.endswith("_display") else df_all
+
+
+def prepare_strip_grid(
+    df_all: pd.DataFrame,
+    df_plot: pd.DataFrame,
+    *,
+    row_variable: str,
+    fixed_filters: dict,
+    colour_hex_col: str,
+    x: str = "design_peak_wavelength_nm",
+    score_col: str = "eta_C",
+    select_best_within_cell: bool = True,
+) -> tuple[pd.DataFrame, dict]:
+    """
+    High-level helper to prepare a strip-grid dataframe and all notebook-facing metadata.
+
+    Returns
+    -------
+    df_grid : pd.DataFrame
+        One row per plotted tile.
+    meta : dict
+        Contains:
+          - fixed_filters_clean
+          - row_label_fmt
+          - title
+          - row_variable
+          - colour_hex_col
+          - df_source_name
+    """
+    fixed_filters_clean = fixed_filters.copy()
+
+    removed_filter = None
+    if row_variable in fixed_filters_clean:
+        removed_filter = fixed_filters_clean.pop(row_variable)
+
+    df_source = choose_colour_source_dataframe(df_all, df_plot, colour_hex_col)
+    df_source_name = "df_plot" if df_source is df_plot else "df_all"
+
+    df_grid = select_strip_grid(
+        df_source,
+        row_variable=row_variable,
+        fixed_filters=fixed_filters_clean,
+        x=x,
+        score_col=score_col,
+        select_best_within_cell=select_best_within_cell,
+    )
+
+    meta = {
+        "fixed_filters_clean": fixed_filters_clean,
+        "row_label_fmt": make_row_label_fmt(row_variable),
+        "title": make_strip_grid_title(row_variable, fixed_filters_clean),
+        "row_variable": row_variable,
+        "colour_hex_col": colour_hex_col,
+        "df_source_name": df_source_name,
+        "removed_filter": removed_filter,
+        "x": x,
+        "score_col": score_col,
+    }
+
+    return df_grid, meta
+
+
+def summarize_strip_grid_cases(
+    df_grid: pd.DataFrame,
+    *,
+    row_variable: str,
+    fixed_filters: dict,
+    colour_hex_col: str,
+    x: str = "design_peak_wavelength_nm",
+) -> pd.DataFrame:
+    """
+    Return a compact summary table of the actually plotted strip-grid tiles.
+
+    Only includes:
+      - x
+      - case_index
+      - the row variable
+      - fixed filter parameters
+      - η_C / η_L as percentages
+      - selected colour column
+
+    This keeps the printed table focused on the plotted grid rather than dumping many columns.
+    """
+    df_print = df_grid.copy()
+
+    if "eta_C" in df_print.columns:
+        df_print["eta_C_pct"] = (100 * df_print["eta_C"]).round(0).astype(int)
+    if "eta_L" in df_print.columns:
+        df_print["eta_L_pct"] = (100 * df_print["eta_L"]).round(0).astype(int)
+
+    cols = [x, "case_index", row_variable]
+
+    # only include the fixed parameters actually used for this plot
+    for col in fixed_filters.keys():
+        if col != row_variable:
+            cols.append(col)
+
+    cols.extend(["eta_C_pct", "eta_L_pct", colour_hex_col])
+
+    # remove duplicates while preserving order
+    cols_unique = []
+    for c in cols:
+        if c not in cols_unique:
+            cols_unique.append(c)
+
+    cols_unique = [c for c in cols_unique if c in df_print.columns]
+
+    sort_cols = [c for c in [row_variable, x] if c in df_print.columns]
+    df_print = df_print.sort_values(sort_cols).reset_index(drop=True)
+
+    return df_print[cols_unique]
 
 # ------------------------------------------------------------
 # OPTION 1 — best eta_C single-strip mode

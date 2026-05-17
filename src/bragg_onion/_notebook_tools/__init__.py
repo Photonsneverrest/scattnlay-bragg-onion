@@ -22,6 +22,13 @@ from .strip_plots import (
     select_strip_grid,
     plot_colour_strip_grid,
     plot_sweep_heatmap_local,
+    pretty_param_name,
+    format_param_value,
+    make_row_label_fmt,
+    make_strip_grid_title,
+    choose_colour_source_dataframe,
+    prepare_strip_grid,
+    summarize_strip_grid_cases,
 )
 
 from .rosch_plots import (
@@ -42,4 +49,11 @@ __all__ = [
     "plot_sweep_heatmap_local",
     "make_rosch_macadam_figures",
     "add_highlight_cielab_points",
+    "pretty_param_name",
+    "format_param_value",
+    "make_row_label_fmt",
+    "make_strip_grid_title",
+    "choose_colour_source_dataframe",
+    "prepare_strip_grid",
+    "summarize_strip_grid_cases",
 ]
